@@ -116,8 +116,17 @@ bot.onText(/\/unsubscribe/, async (msg) => {
 // Проверка новых машин и рассылка
 const checkNewCars = async () => {
   const browser = await puppeteer.launch({
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--disable-gpu",
+      "--no-zygote",
+      "--single-process",
+    ],
   });
+
   const page = await browser.newPage();
   await page.goto("https://auto.kufar.by/l/cars?cur=USD&oph=1&prc=r%3A400%2C1100");
 
@@ -161,5 +170,5 @@ const checkNewCars = async () => {
   await browser.close();
 };
 
-// Интервал проверки новых машин (каждые 20 секунд)
-setInterval(checkNewCars, 20000);
+// Интервал проверки новых машин (каждые 5 минут)
+setInterval(checkNewCars, 300000);
