@@ -128,7 +128,16 @@ const checkNewCars = async () => {
   });
 
   const page = await browser.newPage();
-  await page.goto("https://auto.kufar.by/l/cars?cur=USD&oph=1&prc=r%3A400%2C1100");
+
+  try {
+    await page.goto("https://auto.kufar.by/l/cars?cur=USD&oph=1&prc=r%3A400%2C1100", {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
+    });
+  } catch (error) {
+    console.error("Ошибка загрузки страницы:", error);
+    return;
+  }
 
   await page.waitForSelector('[data-cy="auto-listing-block"]');
 
