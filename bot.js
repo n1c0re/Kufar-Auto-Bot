@@ -8,15 +8,13 @@ import dotenv from 'dotenv'
 
 dotenv.config()
 
-// Инициализация бота
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, {
   polling: true,
 });
 
-// Инициализация сервера и базы данных
 const app = express();
 const port = process.env.SERVER_PORT || 4000;
-const client = await startConnection(); // Подключение к базе данных
+const client = await startConnection();
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -113,35 +111,22 @@ bot.onText(/\/unsubscribe/, async (msg) => {
   }
 });
 
-// Проверка новых машин и рассылка
-const checkNewCars = async () => {
-  const browser = await puppeteer.launch({
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--disable-gpu",
-      "--no-zygote",
-      "--single-process",
-    ],
-  });
-
-  const page = await browser.newPage();
+const checkKufarCars = async (browser, subscribers) => {
+  const kufarPage = await browser.newPage();
 
   try {
-    await page.goto("https://auto.kufar.by/l/cars?cur=USD&oph=1&prc=r%3A400%2C1100", {
+    await kufarPage.goto("https://auto.kufar.by/l/cars?cur=USD&oph=1&prc=r%3A400%2C1100", {
       waitUntil: 'domcontentloaded',
       timeout: 60000
     });
   } catch (error) {
-    console.error("Ошибка загрузки страницы:", error);
+    console.error("Ошибка загрузки страницы Kufar:", error);
     return;
   }
 
-  await page.waitForSelector('[data-cy="auto-listing-block"]');
+  await kufarPage.waitForSelector('[data-cy="auto-listing-block"]');
 
-  const cars = await page.$$eval(
+  const kufarCars = await kufarPage.$$eval(
     '[data-cy="auto-listing-block"] section a[class*="styles_wrapper"]',
     (carElements) => {
       return carElements.map((car) => {
@@ -158,26 +143,97 @@ const checkNewCars = async () => {
     }
   );
 
-  const subscribers = await getSubscribers();
   for (const subscriber of subscribers) {
     const sentCars = await getSentCars(subscriber);
 
-    for (const car of cars) {
+    for (const car of kufarCars) {
       const { title, price, params, region, date, image, link } = car;
 
       if (!sentCars.includes(link)) {
         await addSentCar(subscriber, link);
 
-        const message = `Новая машина: ${title}\nЦена: ${price}\nДетали: ${params}\nРегион: ${region}\nДата: ${date}\nСсылка: ${link}\n`;
+        const message = `Новая машина (Kufar): ${title}\nЦена: ${price}\nДетали: ${params}\nРегион: ${region}\nДата: ${date}\nСсылка: ${link}\n`;
         bot.sendPhoto(subscriber, image, { caption: message });
 
-        console.log("Сообщение отправлено подписчику:", message);
+        console.log("Сообщение отправлено подписчику (Kufar):", message);
       }
     }
   }
+};
+
+const checkAvCars = async (browser, subscribers) => {
+  const avPage = await browser.newPage();
+
+  try {
+    await avPage.goto(
+      "https://cars.av.by/filter?price_usd[min]=400&price_usd[max]=1100&condition[0]=2&sort=4",
+      {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      }
+    );
+  } catch (error) {
+    console.error("Ошибка загрузки страницы av.by:", error);
+    return;
+  }
+
+  await avPage.waitForSelector('.listing__items');
+  
+  const avCars = await avPage.$$eval(
+    '.listing-item',
+    (carElements) => {
+      return carElements.map((car) => {
+        return {
+          title: car.querySelector('.listing-item__title .listing-item__link')?.textContent.trim(),
+          price: car.querySelector('.listing-item__price')?.textContent.trim() + " " + car.querySelector('.listing-item__priceusd')?.textContent.trim(),
+          params: car.querySelector('.listing-item__params')?.textContent.trim(),
+          region: car.querySelector('.listing-item__location')?.textContent.trim(),
+          date: car.querySelector('.listing-item__date')?.textContent.trim(),
+          image: car.querySelector('.listing-item__photo img')?.getAttribute('data-src'),
+          link: car.querySelector('.listing-item__link')?.href,
+        };
+      });
+    }
+  );
+
+  for (const subscriber of subscribers) {
+    const sentCars = await getSentCars(subscriber);
+
+    for (const car of avCars) {
+      const { title, price, params, region, date, image, link } = car;
+
+      if (!sentCars.includes(link)) {
+        await addSentCar(subscriber, link);
+
+        const message = `Новая машина (av.by): ${title}\nЦена: ${price}\nДетали: ${params}\nРегион: ${region}\nДата: ${date}\nСсылка: ${link}\n`;
+        bot.sendPhoto(subscriber, image, { caption: message });
+
+        console.log("Сообщение отправлено подписчику (av.by):", message);
+      }
+    }
+  }
+};
+
+const checkNewCars = async () => {
+  const browser = await puppeteer.launch({
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--disable-gpu",
+      "--no-zygote",
+      "--single-process",
+    ],
+  });
+
+  const subscribers = await getSubscribers();
+
+  await checkKufarCars(browser, subscribers);
+
+  await checkAvCars(browser, subscribers);
 
   await browser.close();
 };
 
-// Интервал проверки новых машин (каждые 5 минут)
 setInterval(checkNewCars, 300000);
